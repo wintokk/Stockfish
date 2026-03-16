@@ -542,3 +542,222 @@ As established in the architecture analysis above:
 - **Lazy SMP** (`thread.cpp`): Each thread searches independently with slightly different parameters; they communicate only through the shared TT. Real cores give true parallelism; HT siblings compete for the same execution resources.
 - **TT enrichment scales with real parallelism**: N threads on N real cores fill the transposition table N× faster than 1 thread. HT siblings on the same core only provide ~1.1-1.3× speedup per pair, not 2×.
 - **Optimal configuration**: Set `Threads` to the number of **physical cores** (not HT threads), and `Hash` to at least `Threads × 16 MB` for adequate TT coverage.
+
+---
+
+## Go-to-Market Strategy: Cloud Stockfish Analysis Service
+
+### The Opportunity
+
+The online chess instruction and play market is projected at **$243.8M in 2025**, growing to **$618.57M by 2034** (10.9% CAGR). Over **35% of digital chess users** now use AI-powered coaching and analysis. Chess.com has **200M+ registered users** (as of April 2025), with **20M games played daily**. FIDE counts **~1.64M rated players** — the core serious-analysis audience.
+
+Chessify is currently the dominant cloud analysis platform, but their pricing model has significant inefficiencies that create room for a leaner competitor.
+
+### Competitive Pricing Analysis: Chessify vs RunPod-Backed Service
+
+#### Chessify's Current Pricing (as of 2026)
+
+| Tier | Speed | Cost | Effective $/hr |
+|------|-------|------|----------------|
+| Free | ~1 MN/s (shared) | $0 | $0 |
+| Amateur | ~10 MN/s (shared) | $8/mo | ~$0.05/hr (assuming 160 hrs/mo) |
+| Master | 25-100 MN/s (shared) | $35/mo | ~$0.22/hr |
+| Dedicated 130 MN/s | 130 MN/s (dedicated) | 10 coins/min | **$6.00/hr** |
+| Dedicated 300 MN/s | 300 MN/s (dedicated) | 20 coins/min | **$12.00/hr** |
+| Dedicated 700 MN/s | 700 MN/s (dedicated) | 60 coins/min | **$36.00/hr** |
+| Dedicated 1 BN/s | 1,000 MN/s (dedicated) | 80 coins/min | **$48.00/hr** |
+
+Note: 1 coin = $0.01 at base price. Bulk discounts up to 20% on $500+ packages.
+
+**Key insight**: Chessify's subscription tiers (Amateur/Master) are cost-effective but use **shared servers** — speed fluctuates with demand. Their dedicated servers (what serious players actually need for preparation) are **coin-gated and expensive**: $6-48/hr.
+
+#### RunPod Economy Cost Structure
+
+RunPod CPU serverless offers per-second billing with no ingress/egress fees. Compute-optimized CPU instances provide high single-thread performance critical for Stockfish NPS.
+
+| Your Config | Est. RunPod Cost | Est. NPS (SF18) | Effective $/hr |
+|-------------|-----------------|-----------------|----------------|
+| 4 vCPU compute-optimized | ~$0.04-0.10/hr | ~15-25 MN/s | **$0.04-0.10/hr** |
+| 8 vCPU compute-optimized | ~$0.08-0.20/hr | ~30-50 MN/s | **$0.08-0.20/hr** |
+| 16 vCPU compute-optimized | ~$0.16-0.40/hr | ~60-100 MN/s | **$0.16-0.40/hr** |
+
+*(Exact RunPod CPU pricing should be validated against their current pricing page — costs are per-second billed.)*
+
+#### The Price Gap
+
+| Speed Tier | Chessify Cost | Your Est. Cost | Savings |
+|------------|--------------|----------------|---------|
+| ~25 MN/s dedicated | $6/hr (130 MN/s coin server, underutilized) | ~$0.06/hr | **~99×** cheaper |
+| ~50 MN/s dedicated | $12/hr (300 MN/s coin server) | ~$0.15/hr | **~80×** cheaper |
+| ~100 MN/s dedicated | $36/hr (700 MN/s coin server) | ~$0.35/hr | **~100×** cheaper |
+
+Even if the comparison isn't perfectly apples-to-apples (Chessify includes UI, engine management, etc.), the **infrastructure cost gap is 50-100×**. Even after adding your margin, platform costs, and a UI layer, you can offer **10-30× cheaper dedicated analysis**.
+
+### Core Value Proposition
+
+**"Faster to depth, less waste, highest Elo-per-dollar."**
+
+This isn't "budget Chessify." The positioning should be:
+
+> **Dedicated Stockfish depth at subscription prices.** No shared servers. No coin anxiety. No NPS roulette. Just clean, dedicated cores running your analysis — and you pay 10× less for it.
+
+#### The Three Pillars
+
+1. **Elo-per-Dollar Ratio** (the killer metric)
+   - Define and own this metric: "How much playing strength improvement do you get per dollar of analysis spend?"
+   - Chessify's shared servers fluctuate between 25-100 MN/s — you're paying for 100 but often getting 40. That's wasted Elo-per-dollar.
+   - Your service: dedicated cores, consistent NPS, no contention. Every dollar buys predictable depth.
+
+2. **Faster to Depth** (what tournament players actually care about)
+   - Tournament prep is time-boxed: you have 2 hours before a game to check 5-10 critical lines.
+   - What matters: reaching depth 35+ in your prep lines, not raw NPS bragging rights.
+   - Messaging: "Reach depth 35 in your Sicilian prep for $0.50, not $15."
+
+3. **No Waste / Transparent Pricing**
+   - Chessify's coin system creates purchase anxiety and expiration pressure (coins expire in 6 months).
+   - Simple per-minute or per-analysis pricing. No coins, no expiring credits, no shared-server lottery.
+   - Show users exactly what they're paying: "This analysis cost you $0.03 and reached depth 38."
+
+### Target Market Segments
+
+#### Primary: Tournament Players (1600-2400 FIDE/online rating)
+
+- **Size**: ~500K-1M globally (extrapolated from 1.64M FIDE-rated players minus casual/elite)
+- **Need**: Opening preparation, post-game analysis, novelty checking
+- **Budget**: $10-50/month on chess tools
+- **Pain point**: Chessify Master plan ($35/mo) gives shared servers; dedicated servers eat coins fast during prep sessions
+- **Your offer**: Dedicated analysis at $10-20/month unlimited, or $0.01-0.05/analysis pay-as-you-go
+
+#### Secondary: Chess Coaches & Content Creators
+
+- **Size**: ~50K-100K globally
+- **Need**: Deep analysis for lesson prep, video content, student game review
+- **Budget**: $50-200/month (business expense)
+- **Pain point**: Need consistent, deep analysis for content quality; Chessify coins burn fast
+- **Your offer**: "Creator plan" with batch analysis, API access, embeddable analysis widgets
+
+#### Tertiary: Aspiring Improvers (1200-1600)
+
+- **Size**: ~5M+ (largest segment by volume)
+- **Need**: Understand where they went wrong, basic opening prep
+- **Budget**: $0-15/month
+- **Pain point**: Chessify free tier is 1 MN/s (practically useless for deep analysis)
+- **Your offer**: Free tier at 10-15 MN/s (what Chessify charges $8/mo for), converting to paid for deeper/faster
+
+### Distribution & Growth Channels
+
+#### 1. YouTube Chess Content (Highest ROI channel)
+
+**Why**: Chess YouTube is massive (GothamChess: 5M+ subs, Levy content gets 1-10M views). Analysis content performs well.
+
+**Strategy**:
+- **Produce "Depth Matters" analysis videos**: Take famous games/positions, show how evaluation changes at depth 20 vs 30 vs 40. Use your platform for the analysis. Watermark with your service.
+- **Sponsor mid-tier chess YouTubers** (10K-200K subs): More cost-effective than top creators and their audiences are more analysis-focused.
+- **"Stockfish Says" series**: Quick-hit vertical content (YouTube Shorts, TikTok) — "What does Stockfish think at depth 45?" on viral chess moments.
+- **Show the cost comparison live**: "This analysis just cost me $0.04. On Chessify coins, it would have been $2.40."
+
+#### 2. X.com / Chess Twitter
+
+**Why**: Chess Twitter is highly engaged. GMs, coaches, and serious players actively discuss analysis.
+
+**Strategy**:
+- **Post deep analysis of trending games** (world championship, titled Tuesday, viral games) with your platform's analysis output.
+- **"Depth race" threads**: Show your analysis reaching depth 40+ on interesting positions, link to the platform.
+- **Engage GM/IM accounts**: Offer free analysis credits. If a titled player uses your service publicly, it's instant credibility.
+- **Cost comparison infographics**: Side-by-side: "1 hour of dedicated analysis: Chessify $6-48 vs [YourService] $0.20-0.50."
+
+#### 3. Lichess Integration (Community-first distribution)
+
+**Why**: Lichess is open-source, has 100K+ daily active players, and its community values cost-effectiveness and transparency.
+
+**Strategy**:
+- **Build a Lichess study integration** or browser extension that sends positions to your cloud for deep analysis.
+- **Sponsor Lichess** (they accept donations/sponsors): Huge goodwill + direct placement in front of serious players.
+- **Contribute to Lichess ecosystem**: Open-source your analysis API client, contribute to Lichess tools. The community rewards this with organic adoption.
+- **"Powered by [YourService]" widget**: Free deep analysis of the day on Lichess studies.
+
+#### 4. Chess Forums & Communities
+
+- **Chess.com forums, Reddit r/chess (3M+ members), r/chessimprovement**
+- Post genuine analysis content (not ads). Answer "how do I analyze my games better" questions with your platform as the tool.
+- Tournament prep guides: "How I prep openings for OTB tournaments using cloud Stockfish for $5/month."
+
+#### 5. Direct Tournament Presence
+
+- **Sponsor local/regional tournaments**: Low cost ($200-1000), high-trust audience.
+- **Offer "tournament prep packs"**: 24-hour unlimited deep analysis before rated tournaments, priced at $1-3.
+- **Partner with chess coaches**: Bulk pricing for coaches who recommend your service to students.
+
+### Pricing Model Recommendation
+
+#### Subscription Tiers
+
+| Tier | Speed | Price | vs Chessify |
+|------|-------|-------|-------------|
+| **Free** | ~10 MN/s dedicated, 30 min/day | $0 | = Chessify Amateur ($8/mo) |
+| **Club** | ~25 MN/s dedicated, unlimited | $9/mo | > Chessify Master ($35/mo) shared |
+| **Tournament** | ~50 MN/s dedicated, unlimited | $19/mo | ≈ Chessify dedicated coins at 1/20th cost |
+| **Pro** | ~100 MN/s dedicated, unlimited + API | $39/mo | ≈ Chessify 700 MN/s coins at 1/50th cost |
+
+**Key differentiator at every tier**: *Dedicated* cores, not shared. Your "Club" at $9/mo gives what Chessify only gives at $35/mo (and your speed is consistent, not "25-100 depending on demand").
+
+#### Pay-as-You-Go Option
+
+- $0.01/minute for ~25 MN/s
+- $0.03/minute for ~50 MN/s
+- $0.08/minute for ~100 MN/s
+- No expiration, no minimum purchase, no coin conversion
+- Compare: Chessify's cheapest dedicated is $0.10/min (10 coins)
+
+### Messaging Framework
+
+#### Tagline Options
+- "Tournament-grade analysis. Coffee-money pricing."
+- "Every dollar buys deeper analysis."
+- "Dedicated depth. No compromises."
+
+#### Key Messages by Channel
+
+| Channel | Message Focus |
+|---------|--------------|
+| YouTube | "Watch what depth 40+ reveals that depth 25 misses" (visual, educational) |
+| X.com | "This position changes evaluation at depth 38. Chessify coins: $4.80. Us: $0.06." (provocative, data-driven) |
+| Lichess | "Open, transparent, community-first cloud analysis" (values-aligned) |
+| Reddit | "Here's how I prep openings for OTB tournaments for $5/month" (practical, relatable) |
+| Coaches | "Give every student GM-level analysis at your lesson price" (B2B value prop) |
+
+### Launch Sequence
+
+#### Phase 1: Build Credibility (Month 1-2)
+- Launch free tier (10 MN/s, 30 min/day) — immediately better than Chessify free (1 MN/s)
+- Post deep analysis content on YouTube and X.com using your own platform
+- Open-source the analysis API client
+- Seed Reddit/Lichess with genuine analysis contributions
+
+#### Phase 2: Prove the Economics (Month 2-4)
+- Launch paid tiers with 14-day free trial
+- Publish "Elo-per-Dollar" benchmark comparisons (rigorous, reproducible)
+- Sponsor 3-5 mid-tier chess YouTubers for sponsored analysis videos
+- Offer free credits to titled players and coaches
+
+#### Phase 3: Scale Distribution (Month 4-8)
+- Lichess integration / browser extension
+- Batch analysis feature (analyze all games from a tournament)
+- Coach/creator partnership program (bulk pricing + affiliate commissions)
+- Tournament sponsorships in key markets (US, India, Europe)
+
+#### Phase 4: Expand Moat (Month 8-12)
+- Multi-engine support (Stockfish + Leela Chess Zero)
+- Opening book integration (link analysis to opening databases)
+- "Prep mode": automatically analyze your opponent's recent games before a tournament pairing
+- Mobile app for on-the-go analysis review
+
+### Risks & Mitigations
+
+| Risk | Mitigation |
+|------|-----------|
+| Chessify cuts prices in response | Your infrastructure cost is 50-100× lower — you can sustain a price war they can't |
+| RunPod raises CPU prices or changes terms | Multi-provider strategy (Hetzner, OVH, bare-metal fallbacks). Stockfish is CPU-only, so provider switching is trivial |
+| Low conversion from free tier | Free tier must be good enough to demonstrate value but time-limited enough to motivate upgrade. 30 min/day is the sweet spot |
+| Chess.com builds native cloud analysis | They'd likely charge premium; your cost advantage still holds. Also, Lichess community won't use Chess.com's service |
+| Players don't understand NPS/depth | Reframe: don't sell NPS, sell "analysis quality." Show eval changes at different depths. Make depth a visible, understandable metric in your UI |
