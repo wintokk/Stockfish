@@ -462,3 +462,83 @@ The discussion in the screenshots compares Stockfish at 1 MN/s vs 30 MN/s reachi
 - **No "search aggressiveness" slider**: All pruning margins are compile-time constants, not UCI options.
 - **No "width vs depth" tradeoff parameter**: The `TUNE()` macro system exists for developer tuning via fishtest, but these are not exposed as UCI options.
 - **NPS itself is not controllable**: It's a property of your hardware. You can artificially limit it with `nodestime` to simulate slower hardware, but this makes the engine weaker, not "wider."
+
+---
+
+## NPS Benchmarking & Thread-to-Core Analysis
+
+### Are N Threads Guaranteed to Run on N Different Physical Cores?
+
+**No.** The OS/hypervisor decides vCPU-to-core pinning. On cloud instances (e.g., RunPod), there is no documented guarantee that each vCPU maps to a distinct physical core.
+
+#### Three Possible Scenarios
+
+| Scenario | What You Get | Stockfish Impact |
+|----------|-------------|-----------------|
+| N vCPUs on N physical cores (no HT) | Best case — N real cores | Full thread scaling |
+| N vCPUs on N/2 physical cores (HT pairs) | Worst case — half real cores | ~55% effective cores |
+| Mixed (some shared, some dedicated) | Most likely on cloud | Somewhere in between |
+
+Cloud "compute-optimized" instance types (e.g., `cpu5c`, AWS c-series, GCP C2/C3) typically disable hyperthreading or pin vCPUs to physical cores, making real-core assignment more likely — but it's not guaranteed.
+
+#### How to Verify on Your Instance
+
+```bash
+# Check CPU topology
+lscpu | grep -E "Thread|Core|Socket|CPU\(s\)"
+
+# Key output to look for:
+#   CPU(s):              8
+#   Thread(s) per core:  1    ← NO hyperthreading, each vCPU = real core
+#   Thread(s) per core:  2    ← Hyperthreading enabled, half are shared
+#   Core(s) per socket:  4
+```
+
+- If `Thread(s) per core: 1` → set `Threads` equal to your vCPU count.
+- If `Thread(s) per core: 2` → effective physical cores = vCPUs / 2. Setting `Threads` higher than physical core count gives diminishing returns.
+
+### NPS Scaling Benchmark Strategy
+
+The most reliable way to determine real core count and optimal thread count is to **benchmark NPS scaling directly**:
+
+```bash
+# Quick NPS scaling test
+for t in 1 2 3 4; do
+  echo "=== Threads: $t ==="
+  echo "setoption name Threads value $t
+bench" | ./stockfish 2>&1 | tail -1
+done
+```
+
+#### Interpreting Results
+
+| NPS Scaling Pattern (1→2→3→4 threads) | Diagnosis |
+|----------------------------------------|-----------|
+| +90%, +80%, +70% (roughly linear) | All 4 vCPUs are real cores — use all threads |
+| +90%, +10%, +5% (sharp dropoff at 3) | Only 2 physical cores (threads 3-4 are HT siblings) |
+| +90%, +80%, +5% (dropoff at 4) | 3 physical cores, thread 4 shares a core |
+| <+50% from thread 1→2 | Even core 2 may be shared; investigate further |
+
+#### Extended Benchmark (Full Depth Sweep)
+
+For deeper analysis, test at multiple fixed depths to see how scaling holds under different workloads:
+
+```bash
+for depth in 16 20 24; do
+  echo "=== Depth: $depth ==="
+  for t in 1 2 4 8; do
+    echo "--- Threads: $t ---"
+    echo "setoption name Threads value $t
+setoption name Hash value 256
+go depth $depth" | ./stockfish 2>&1 | grep -E "depth $depth|Nodes/second"
+  done
+done
+```
+
+#### Why This Matters for Evaluation Quality
+
+As established in the architecture analysis above:
+- **More real cores → higher effective NPS → deeper search in fixed time** (Section: "Validation of NPS vs Depth Claims")
+- **Lazy SMP** (`thread.cpp`): Each thread searches independently with slightly different parameters; they communicate only through the shared TT. Real cores give true parallelism; HT siblings compete for the same execution resources.
+- **TT enrichment scales with real parallelism**: N threads on N real cores fill the transposition table N× faster than 1 thread. HT siblings on the same core only provide ~1.1-1.3× speedup per pair, not 2×.
+- **Optimal configuration**: Set `Threads` to the number of **physical cores** (not HT threads), and `Hash` to at least `Threads × 16 MB` for adequate TT coverage.
